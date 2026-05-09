@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Penelitian Spasial MRT - 3D Test</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: white; user-select: none; }
+        
+        /* LAYAR LOGIN */
+        #login-screen {
+            position: absolute; width: 100%; height: 100%; background: #0a0a0a;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000;
+        }
+        .login-box { background: #151515; padding: 40px; border-radius: 15px; border: 1px solid #00ffcc; text-align: center; box-shadow: 0 0 30px rgba(0,255,204,0.1); }
+        input { padding: 12px; width: 250px; border-radius: 5px; border: 1px solid #333; background: #222; color: #fff; font-size: 16px; margin-top: 15px; text-align: center; }
+        input:focus { outline: none; border-color: #00ffcc; }
+        button { padding: 12px 30px; background: #00ffcc; border: none; border-radius: 5px; color: #000; font-weight: bold; cursor: pointer; margin-top: 20px; font-size: 16px; transition: 0.2s; }
+        button:hover { background: #00ccaa; }
+
+        /* LAYAR COUNTDOWN */
+        #countdown-screen {
+            position: absolute; width: 100%; height: 100%; background: #050505;
+            display: flex; align-items: center; justify-content: center; z-index: 900;
+            display: none; /* Disembunyikan di awal */
+            font-size: 150px; font-weight: bold; color: #00ffcc; text-shadow: 0 0 30px #00ffcc;
+        }
+
+        /* UI GAME */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display: none; }
+        
+        #header { display: flex; align-items: center; padding: 20px 40px; font-size: 20px; font-weight: bold; background: rgba(0,0,0,0.2); border-bottom: 1px solid rgba(255,255,255,0.1); pointer-events: auto; }
+        #header > div { flex: 1; }
+        #header > div:nth-child(1) { text-align: left; }
+        #header > div:nth-child(2) { text-align: center; font-variant-numeric: tabular-nums; }
+        #header > div:nth-child(3) { text-align: right; }
+
+        #queue-container { position: absolute; top: 50%; left: 30px; transform: translateY(-50%); background: rgba(20,20,20,0.9); padding: 15px; border-radius: 10px; border: 1px solid #00ffcc; width: 60px; text-align: center; }
+        #queue-list { font-size: 35px; min-height: 40px; }
+        .queue-item { margin-bottom: 8px; color: #00ffcc; text-shadow: 0 0 10px #00ffcc; animation: slideIn 0.2s ease; font-weight: 300; }
+        
+        #instructions { position: absolute; bottom: 0; width: 100%; text-align: center; font-size: 14px; color: #aaa; background: rgba(0,0,0,0.2); padding: 15px 0; border-top: 1px solid rgba(255,255,255,0.1); pointer-events: auto; letter-spacing: 1px; }
+        #feedback { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 80px; font-weight: bold; opacity: 0; transition: opacity 0.1s; z-index: 100; text-align: center; line-height: 1.3; }
+
+        .text-neon { color: #00ffcc; text-shadow: 0 0 15px #00ffcc; }
+        .text-red { color: #ff0055; text-shadow: 0 0 15px #ff0055; }
+        .text-yellow { color: #ffcc00; text-shadow: 0 0 15px #ffcc00; }
+        kbd { background: #333; padding: 3px 8px; border-radius: 4px; color: #00ffcc; font-size: 13px; border: 1px solid #555; margin: 0 2px; font-weight: bold; }
+        
+        @keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="login-screen">
+        <div class="login-box">
+            <h2 class="text-neon">Tes Spasial 3D</h2>
+            <p style="color: #ccc;">Silakan masukkan Nickname Anda untuk memulai:</p>
+            <input type="text" id="nickname-input" placeholder="Ketik di sini..." maxlength="20" autocomplete="off">
+            <br>
+            <button onclick="startCountdown()">MULAI TES</button>
+            <p style="font-size: 11px; color: #555; margin-top: 25px; letter-spacing: 1px;">ID PERANGKAT: <span id="device-id-label"></span></p>
+        </div>
+    </div>
+
+    <div id="countdown-screen">3</div>
+
+    <div id="ui-layer">
+        <div id="header">
+            <div>SOAL: <span id="level">1</span>/24 <span id="diff-label" class="text-neon">[EASY]</span></div>
+            <div>WAKTU: <span id="timer-display" class="text-yellow">0.0</span> s</div>
+            <div>SKOR: <span id="score">0/24</span></div>
+        </div>
+
+        <div id="queue-container">
+            <div style="font-size: 10px; margin-bottom: 8px; color: #666; letter-spacing: 1px;">INPUT</div>
+            <div id="queue-list"></div>
+        </div>
+        <div id="feedback">BERHASIL!</div>
+        <div id="instructions">
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>Q</kbd><kbd>E</kbd> KONTROL | <kbd>ENTER</kbd> KUNCI | <kbd>BACKSPACE</kbd> HAPUS
+        </div>
+    </div>
+
+    <script>
+        // --- KONFIGURASI AZURE ---
+        const AZURE_ENDPOINT = "https://prod-28.southeastasia.logic.azure.com:443/workflows/ae29541b52154bd283ca60236a0dc3c4/triggers/When_an_HTTP_request_is_received/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_an_HTTP_request_is_received%2Frun&sv=1.0&sig=5eR6mOQ4_9tBsg22p8Ip_Pzvp0RPu5PdwNFSX0P-tyQ"; 
+
+        // --- MANAJEMEN DATA & DEVICE ID ---
+        let researchData = {
+            Waktu_Submit: "", Nickname: "", Device_ID: "", Total_Skor: 0, Total_Waktu: 0, Results: {}
+        };
+
+        let devID = localStorage.getItem('mrt_device_id');
+        if(!devID) {
+            devID = 'MRT-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+            localStorage.setItem('mrt_device_id', devID);
+        }
+        document.getElementById('device-id-label').innerText = devID;
+
+        // --- 1. CORE ENGINE ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 4, 14);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const light = new THREE.PointLight(0xffffff, 1);
+        light.position.set(10, 10, 10);
+        scene.add(light);
+
+        // --- 2. GAME STATE & CONSTANTS ---
+        const totalLevels = 24;
+        let level = 1, score = 0;
+        let isLocked = false, isEvaluating = false, inputQueue = [];
+        let playerObj, targetGhost;
+
+        let isAnimatingRot = false;
+        let rotIndex = 0;
+        let rotProgress = 0;
+        let stepStartQ = new THREE.Quaternion();
+        let stepEndQ = new THREE.Quaternion();
+        
+        let currentTime = 0;
+        let timeTaken = 0;
+        let totalCorrectTime = 0;
+
+        const rotStep = Math.PI / 4; 
+        const xAxis = new THREE.Vector3(1,0,0), yAxis = new THREE.Vector3(0,1,0), zAxis = new THREE.Vector3(0,0,1);
+        
+        const spawnZ = 8, targetZ = -2;
+        const travelSpeed = (spawnZ - targetZ) / 20.0; 
+        const fastSpeed = travelSpeed * 50; 
+
+        const actions = [
+            { key: 'w', axis: xAxis, ang: -rotStep, icon: '↑' },
+            { key: 's', axis: xAxis, ang: rotStep, icon: '↓' },
+            { key: 'a', axis: yAxis, ang: -rotStep, icon: '←' },
+            { key: 'd', axis: yAxis, ang: rotStep, icon: '→' },
+            { key: 'q', axis: zAxis, ang: rotStep, icon: '⟲' },
+            { key: 'e', axis: zAxis, ang: -rotStep, icon: '⟳' }
+        ];
+
+        const dummyWorld = new THREE.Object3D();
+
+        // --- DEFINISI 24 SOAL BAKU ---
+        let itemsEasy = [
+            { id: "Butir_Easy_1", keys: ['W'] }, { id: "Butir_Easy_2", keys: ['S'] }, { id: "Butir_Easy_3", keys: ['A'] }, { id: "Butir_Easy_4", keys: ['D'] },
+            { id: "Butir_Easy_5", keys: ['W','W'] }, { id: "Butir_Easy_6", keys: ['S','S'] }, { id: "Butir_Easy_7", keys: ['A','A'] }, { id: "Butir_Easy_8", keys: ['D','D'] }
+        ];
+        let itemsMedium = [
+            { id: "Butir_Medium_1", keys: ['W','A'] }, { id: "Butir_Medium_2", keys: ['W','D'] }, { id: "Butir_Medium_3", keys: ['S','A'] }, { id: "Butir_Medium_4", keys: ['S','D'] },
+            { id: "Butir_Medium_5", keys: ['A','W'] }, { id: "Butir_Medium_6", keys: ['D','W'] }, { id: "Butir_Medium_7", keys: ['A','S'] }, { id: "Butir_Medium_8", keys: ['D','S'] }
+        ];
+        let itemsHard = [
+            { id: "Butir_Hard_1", keys: ['W','D','Q'] }, { id: "Butir_Hard_2", keys: ['S','A','E'] }, { id: "Butir_Hard_3", keys: ['W','E','D'] }, { id: "Butir_Hard_4", keys: ['S','Q','A'] },
+            { id: "Butir_Hard_5", keys: ['A','W','E'] }, { id: "Butir_Hard_6", keys: ['A','E','W'] }, { id: "Butir_Hard_7", keys: ['Q','S','D'] }, { id: "Butir_Hard_8", keys: ['Q','D','S'] }
+        ];
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        let sessionItems = [];
+
+        // --- FUNGSI COUNTDOWN SEBELUM MAIN ---
+        function startCountdown() {
+            const nick = document.getElementById('nickname-input').value.trim();
+            if(!nick) { alert("Tolong masukkan Nickname Anda!"); return; }
+            
+            researchData.Nickname = nick;
+            researchData.Device_ID = devID;
+            
+            // Pengacakan soal
+            sessionItems = [
+                ...shuffleArray(itemsEasy), 
+                ...shuffleArray(itemsMedium), 
+                ...shuffleArray(itemsHard)
+            ];
+
+            // Sembunyikan login & Tampilkan Countdown Hitam
+            document.getElementById('login-screen').style.display = 'none';
+            const cdScreen = document.getElementById('countdown-screen');
+            cdScreen.style.display = 'flex';
+            
+            let count = 3;
+            cdScreen.innerText = count;
+            
+            // Timer Countdown
+            const countInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    cdScreen.innerText = count;
+                } else if (count === 0) {
+                    cdScreen.innerText = "MULAI!";
+                    cdScreen.style.color = "#ffcc00"; 
+                    cdScreen.style.textShadow = "0 0 30px #ffcc00";
+                } else {
+                    clearInterval(countInterval);
+                    cdScreen.style.display = 'none'; // Sembunyikan layer hitam
+                    startGame(); // Panggil fungsi mulai sebenarnya
+                }
+            }, 1000);
+        }
+
+        function startGame() {
+            document.getElementById('ui-layer').style.display = 'block';
+            setupLevel(); // Soal 3D baru diciptakan di sini (tidak ada spoiler)
+            animate();
+        }
+
+        // --- 3. PEMBUATAN OBJEK ---
+        function createShape(color, isGhost) {
+            const group = new THREE.Group();
+            const blocks = [[0,0,0], [2,0,0], [-2,0,0], [-2,2,0], [2,0,2], [2,0,-2]];
+            const boxSize = 1.95; const scaleMulti = 1.2; 
+            const mat = new THREE.MeshPhongMaterial({ color: color, transparent: true, opacity: isGhost ? 0.3 : 0.6, shininess: 40, depthWrite: !isGhost });
+            blocks.forEach(p => {
+                const cube = new THREE.Mesh(new THREE.BoxGeometry(boxSize, boxSize, boxSize), mat);
+                cube.position.set(...p);
+                const edges = new THREE.LineSegments(
+                    new THREE.EdgesGeometry(cube.geometry),
+                    new THREE.LineBasicMaterial({ color: isGhost ? 0xff4444 : 0xffffff, transparent: true, opacity: 0.5 })
+                );
+                cube.add(edges);
+                group.add(cube);
+            });
+            group.scale.set(scaleMulti, scaleMulti, scaleMulti);
+            return group;
+        }
+
+        // --- 4. GAME FLOW ---
+        function setupLevel() {
+            if(playerObj) scene.remove(playerObj);
+            if(targetGhost) scene.remove(targetGhost);
+            
+            isLocked = false; isEvaluating = false; 
+            isAnimatingRot = false; rotIndex = 0; rotProgress = 0;
+            inputQueue = [];
+            
+            currentTime = 0; timeTaken = 0;
+            document.getElementById('timer-display').innerText = "0.0";
+            
+            updateUI();
+
+            playerObj = createShape(0x00ffcc, false);
+            targetGhost = createShape(0xff0055, true);
+
+            let currentItem = sessionItems[level - 1];
+            
+            dummyWorld.quaternion.identity();
+            currentItem.keys.forEach(k => {
+                let act = actions.find(a => a.key === k.toLowerCase());
+                dummyWorld.rotateOnWorldAxis(act.axis, act.ang);
+            });
+            targetGhost.quaternion.copy(dummyWorld.quaternion);
+            
+            playerObj.position.set(0, 0, spawnZ);
+            targetGhost.position.set(0, 0, targetZ);
+            
+            scene.add(playerObj); scene.add(targetGhost);
+        }
+
+        function updateUI() {
+            document.getElementById('level').innerText = level;
+            document.getElementById('score').innerText = `${score}/${totalLevels}`;
+            document.getElementById('queue-list').innerHTML = inputQueue.map(q => `<div class="queue-item">${q.icon}</div>`).join('');
+            
+            const dl = document.getElementById('diff-label');
+            if (level <= 8) { dl.innerText = "[EASY]"; dl.className = "text-neon"; }
+            else if (level <= 16) { dl.innerText = "[MEDIUM]"; dl.className = "text-yellow"; }
+            else { dl.innerText = "[HARD]"; dl.className = "text-red"; }
+        }
+
+        function prepareRotationStep() {
+            let action = inputQueue[rotIndex];
+            stepStartQ.copy(playerObj.quaternion);
+            let qWorld = new THREE.Quaternion().setFromAxisAngle(action.axis, action.ang);
+            stepEndQ.copy(qWorld).multiply(stepStartQ); 
+            rotProgress = 0;
+        }
+
+        // --- 5. INPUT HANDLER ---
+        document.addEventListener('keydown', e => {
+            if (isLocked || isEvaluating || level > totalLevels || document.getElementById('ui-layer').style.display === 'none') return;
+            const k = e.key.toLowerCase();
+
+            let act = actions.find(a => a.key === k);
+            if (act) {
+                inputQueue.push(act);
+            } else if (k === 'backspace') {
+                inputQueue.pop();
+            } else if (e.key === 'Enter') {
+                if (!isLocked) {
+                    isLocked = true;
+                    timeTaken = currentTime; 
+                    if (inputQueue.length > 0) {
+                        isAnimatingRot = true; rotIndex = 0; prepareRotationStep();
+                    } else {
+                        isAnimatingRot = false; 
+                    }
+                }
+            }
+            updateUI();
+        });
+
+        const clock = new THREE.Clock();
+        
+        // --- 6. LOOP ANIMASI SINKRONISASI WAKTU ---
+        function animate() {
+            if(level <= totalLevels) requestAnimationFrame(animate);
+            let delta = clock.getDelta(); 
+
+            if (!isEvaluating && level <= totalLevels) {
+                if (!isLocked) {
+                    currentTime += delta;
+                    if (currentTime > 20.0) currentTime = 20.0;
+                    document.getElementById('timer-display').innerText = currentTime.toFixed(1);
+                }
+                
+                if (isAnimatingRot) {
+                    rotProgress += delta * 6; 
+                    if (rotProgress >= 1) rotProgress = 1;
+                    playerObj.quaternion.slerpQuaternions(stepStartQ, stepEndQ, rotProgress);
+
+                    if (rotProgress === 1) {
+                        rotIndex++;
+                        if (rotIndex < inputQueue.length) prepareRotationStep();
+                        else isAnimatingRot = false; 
+                    }
+                } else {
+                    let currentSpeed = isLocked ? fastSpeed : travelSpeed;
+                    if (playerObj.position.z > targetZ) {
+                        playerObj.position.z -= currentSpeed * delta;
+                        if(playerObj.position.z < targetZ) playerObj.position.z = targetZ;
+                    }
+                }
+                
+                if (playerObj.position.z <= targetZ && !isAnimatingRot) { 
+                    if (!isLocked) {
+                        isLocked = true; timeTaken = 20.0;
+                        document.getElementById('timer-display').innerText = "20.0";
+                    }
+                    evaluate(); 
+                }
+            }
+            renderer.render(scene, camera);
+        }
+
+        // --- 7. EVALUASI DAN PENGISIAN DATA EXCEL ---
+        function evaluate() {
+            isEvaluating = true;
+            let currentItem = sessionItems[level - 1];
+            
+            const isMatch = Math.abs(playerObj.quaternion.dot(targetGhost.quaternion)) > 0.995;
+            const fb = document.getElementById('feedback');
+            
+            let rawInputString = inputQueue.length > 0 ? inputQueue.map(act => act.key.toUpperCase()).join('') : "-";
+            let statusString = (isMatch ? "Benar" : "Salah") + " (" + rawInputString + ")";
+            
+            researchData.Results[currentItem.id + "_Status"] = statusString;
+            researchData.Results[currentItem.id + "_Waktu"] = isMatch ? timeTaken.toFixed(2) : "-";
+
+            if (isMatch) { 
+                score++; 
+                totalCorrectTime += timeTaken;
+                document.getElementById('score').innerText = `${score}/${totalLevels}`; 
+                fb.innerText = "BERHASIL!"; fb.className = "text-neon"; 
+            } else { 
+                fb.innerText = "GAGAL!"; fb.className = "text-red"; 
+            }
+            fb.style.opacity = 1;
+            
+            setTimeout(() => {
+                fb.style.opacity = 0; level++;
+                if (level <= totalLevels) {
+                    setupLevel();
+                } else { 
+                    finishGame();
+                }
+            }, 1200);
+        }
+
+        // --- 8. FINISH & AUTO-SUBMIT AZURE ---
+        function finishGame() {
+            researchData.Waktu_Submit = new Date().toLocaleString('id-ID');
+            researchData.Total_Skor = score;
+            researchData.Total_Waktu = totalCorrectTime.toFixed(2);
+            
+            document.getElementById('ui-layer').innerHTML = `
+                <div style="text-align:center; margin-top:200px;">
+                    <h1 class="text-neon" style="font-size: 60px;">TES SELESAI</h1>
+                    <p style="font-size: 26px;">Skor Anda: ${score}/24</p>
+                    <p style="font-size: 22px;" class="text-yellow">Total Waktu (Benar): ${totalCorrectTime.toFixed(1)} s</p>
+                    <p id="status-upload" style="margin-top: 40px; font-size: 18px; color: #888;">Sedang menyimpan data...</p>
+                </div>
+            `;
+
+            submitToAzure();
+        }
+
+        async function submitToAzure() {
+            const payload = {
+                Waktu_Submit: researchData.Waktu_Submit,
+                Nickname: researchData.Nickname,
+                Device_ID: researchData.Device_ID,
+                Total_Skor: researchData.Total_Skor,
+                Total_Waktu: researchData.Total_Waktu,
+                ...researchData.Results
+            };
+
+            try {
+                await fetch(AZURE_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } catch (error) {
+                // Silent Fail
+            }
+            
+            const statusUpload = document.getElementById('status-upload');
+            statusUpload.innerText = "Data Anda telah otomatis tersimpan. Terima kasih!";
+            statusUpload.style.color = "#00ffcc";
+        }
+
+        window.addEventListener('resize', () => { 
+            camera.aspect = window.innerWidth / window.innerHeight; 
+            camera.updateProjectionMatrix(); 
+            renderer.setSize(window.innerWidth, window.innerHeight); 
+        });
+    </script>
+</body>
+</html>
